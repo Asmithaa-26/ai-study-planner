@@ -18,6 +18,7 @@ end TEXT,
 hours INTEGER,
 days TEXT,
 intensity TEXT,
+learning_pref TEXT,
 current_day INTEGER DEFAULT 1
 )
 """)
@@ -36,7 +37,7 @@ done INTEGER DEFAULT 0
 conn.commit()
 
 # ---------------- PLAN LOGIC ----------------
-def generate_plan(goal, total_days, intensity):
+def generate_plan(goal, total_days, intensity, learning_pref):
 
     topics = [
         "Fundamentals",
@@ -47,6 +48,14 @@ def generate_plan(goal, total_days, intensity):
         "Revision"
     ]
 
+    style_map = {
+        "Reading": "Read about",
+        "Practice": "Practice",
+        "Mixed": "Study and practice"
+    }
+
+    style = style_map.get(learning_pref, "Study")
+
     repeat = 2 if intensity=="Light" else 1 if intensity=="Moderate" else 0.7
 
     plan=[]
@@ -55,11 +64,11 @@ def generate_plan(goal, total_days, intensity):
     day=1
     for t in topics:
         for _ in range(per_topic):
-            plan.append((day,f"{t} of {goal}",t))
+            plan.append((day,f"{style} {t} of {goal}",t))
             day+=1
 
     while len(plan)<total_days:
-        plan.append((day,f"Practice {goal}","Practice"))
+        plan.append((day,f"{style} {goal}","Practice"))
         day+=1
 
     return plan
@@ -73,11 +82,16 @@ def create_goal(data):
         st.error("End date must be future")
         return
 
-    plan=generate_plan(data["name"],total_days,data["intensity"])
+    plan=generate_plan(
+        data["name"],
+        total_days,
+        data["intensity"],
+        data["learning_pref"]
+    )
 
     c.execute("""
-    INSERT INTO goals(name,goal_type,start,end,hours,days,intensity,current_day)
-    VALUES(?,?,?,?,?,?,?,1)
+    INSERT INTO goals(name,goal_type,start,end,hours,days,intensity,learning_pref,current_day)
+    VALUES(?,?,?,?,?,?,?,?,1)
     """,(
         data["name"],
         data["type"],
@@ -85,7 +99,8 @@ def create_goal(data):
         str(data["end"]),
         data["hours"],
         ",".join(data["study_days"]),
-        data["intensity"]
+        data["intensity"],
+        data["learning_pref"]
     ))
 
     gid=c.lastrowid
@@ -120,6 +135,12 @@ if menu=="Create Goal":
     intensity=st.selectbox("Study Intensity",
                            ["Light","Moderate","Intensive"])
 
+    # ✅ NEW FEATURE
+    learning_pref=st.selectbox(
+        "Learning Preference",
+        ["Reading","Practice","Mixed"]
+    )
+
     if st.button("Generate Study Plan"):
         create_goal({
             "name":name,
@@ -127,7 +148,8 @@ if menu=="Create Goal":
             "end":end,
             "hours":hours,
             "study_days":study_days,
-            "intensity":intensity
+            "intensity":intensity,
+            "learning_pref":learning_pref
         })
         st.success("Study Plan Created!")
         st.rerun()
@@ -147,7 +169,7 @@ if menu=="Dashboard":
     g=gmap[chosen]
     gid=g[0]
 
-    day_no=g[8]  # manual progression day
+    day_no=g[9]  # updated index
 
     tasks=c.execute(
         "SELECT * FROM tasks WHERE goal_id=?",
@@ -164,6 +186,15 @@ if menu=="Dashboard":
 
     st.progress(progress)
 
+    # -------- WEEKLY PLAN --------
+    st.subheader("📅 Weekly Plan")
+    week=1
+    for i in range(0,len(tasks),7):
+        st.write(f"Week {week}")
+        for t in tasks[i:i+7]:
+            st.write("•",t[3])
+        week+=1
+
     # -------- TODAY TASK --------
     st.subheader("📌 Today's Tasks")
 
@@ -179,7 +210,7 @@ if menu=="Dashboard":
 
     conn.commit()
 
-    # -------- NEXT DAY BUTTON --------
+    # -------- NEXT DAY --------
     if st.button("➡️ Move to Next Day"):
         c.execute(
             "UPDATE goals SET current_day=current_day+1 WHERE id=?",
